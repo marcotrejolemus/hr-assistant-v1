@@ -1,0 +1,61 @@
+# Contexto de construcción mínimo (spec/04, punto 5).
+# Primero se excluye todo y luego se permite solo lo que el Dockerfile copia.
+*
+!requirements.txt
+!app/
+!data/
+
+# Aunque estén dentro de lo permitido, nunca entran al contexto:
+# archivos de entorno con secretos (la plantilla .env.example tampoco hace falta)
+.env
+.env.*
+**/.env
+**/.env.*
+
+# cachés de Python y de herramientas
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.coverage
+**/.coverage
+**/.coverage.*
+
+# pruebas, documentación, control de versiones y entornos locales
+tests/
+e2e/
+doc/
+scripts/
+.git
+.github/
+.venv/
+venv/
+.idea/
+.vscode/
+test-results/
+playwright-report/
+
+# llaves, certificados y credenciales
+**/*.pem
+**/*.key
+**/*.p8
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/*.kdbx
+**/*.ppk
+**/id_rsa*
+**/id_dsa*
+**/id_ecdsa*
+**/id_ed25519*
+**/.netrc
+**/.pgpass
+**/.pypirc
+**/.npmrc
+**/.htpasswd
+**/credentials*
+**/service-account*.json
+**/secrets.*

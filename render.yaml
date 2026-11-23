@@ -1,0 +1,43 @@
+# Blueprint de Render para el HR Assistant v1 (spec/04, punto 7).
+# El servicio se llama igual que el repositorio para no actualizar por error un
+# servicio que ya exista en la cuenta.
+# Los secretos llevan sync: false: Render pide su valor al crear el Blueprint y
+# nunca se escriben en este archivo.
+services:
+  - type: web
+    name: hr-assistant-v1
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    # Render publica solo cuando el pipeline de CI (GitHub Actions) pasa.
+    autoDeployTrigger: checksPass
+    envVars:
+      # Activa las reglas de compliance: el producto no arranca si algo es inseguro.
+      - key: ENVIRONMENT
+        value: production
+      - key: MODEL_PROVIDER
+        value: gateway
+      - key: CF_GATEWAY_ID
+        value: default
+      # Las trazas nunca llevan preguntas ni respuestas.
+      - key: HIDE_INPUTS
+        value: "true"
+      - key: HIDE_OUTPUTS
+        value: "true"
+      # Caché del gateway apagada: en producción debe valer 0 (ADR 0006).
+      - key: CACHE_TTL_SECONDS
+        value: "0"
+      - key: LANGSMITH_PROJECT
+        value: hr-assistant-v1
+      # Secretos: el valor se escribe solo en Render.
+      - key: API_KEYS
+        sync: false
+      - key: CF_ACCOUNT_ID
+        sync: false
+      - key: CF_API_TOKEN
+        sync: false
+      # LANGSMITH_API_KEY no va aquí: es opcional y Render exigiría un valor al
+      # crear el Blueprint. Para encender las trazas, agrega LANGSMITH_API_KEY y
+      # LANGSMITH_TRACING=true en Render > Environment.

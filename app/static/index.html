@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HR Assistant</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 760px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      color: #222;
+    }
+    h1 { font-size: 1.5rem; }
+    form { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    input { flex: 1; padding: 0.5rem; font-size: 1rem; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; }
+    .message {
+      border-radius: 6px;
+      padding: 0.6rem 0.8rem;
+      margin: 0.5rem 0;
+      white-space: pre-wrap;
+    }
+    .user { background: #e8f0fe; }
+    .assistant { background: #f1f3f4; }
+    .error { background: #fde8e8; color: #8a1c1c; }
+    .tools { font-size: 0.85rem; color: #555; margin-top: 0.3rem; }
+    .request-id { font-size: 0.85rem; color: #555; font-family: monospace; }
+    .key-row { display: flex; gap: 0.5rem; align-items: center; }
+  </style>
+</head>
+<body>
+  <h1>HR Assistant</h1>
+  <p class="key-row">
+    <label for="api-key">Clave de acceso:</label>
+    <input data-testid="api-key" id="api-key" type="password"
+           autocomplete="off" placeholder="Tu clave de cliente">
+  </p>
+  <form id="ask-form">
+    <input data-testid="question" id="question" type="text" autocomplete="off"
+           placeholder="Por ejemplo: ¿Quién es EMP-0004?" required>
+    <button data-testid="send" id="send" type="submit">Enviar</button>
+  </form>
+  <div data-testid="answer" id="answer" aria-live="polite"></div>
+  <p class="request-id">
+    Id de la última petición (request_id), para soporte:
+    <span data-testid="request-id" id="request-id">sin peticiones aún</span>
+  </p>
+
+  <script>
+    (function () {
+      "use strict";
+      // El historial vive solo en la memoria del navegador.
+      var history = [];
+      var form = document.getElementById("ask-form");
+      var input = document.getElementById("question");
+      var button = document.getElementById("send");
+      var conversation = document.getElementById("answer");
+      var requestIdBox = document.getElementById("request-id");
+      var keyInput = document.getElementById("api-key");
+      // La clave vive solo en sessionStorage (se borra al cerrar la pestaña).
+      var KEY_STORAGE = "hr-assistant-api-key";
+
+      function readStoredKey() {
+        try {
+          return window.sessionStorage.getItem(KEY_STORAGE) || "";
+        } catch (ignored) {
+          return "";
+        }
+      }
+
+      function storeKey(value) {
+        try {
+          if (value) {
+            window.sessionStorage.setItem(KEY_STORAGE, value);
+          } else {
+            window.sessionStorage.removeItem(KEY_STORAGE);
+          }
+        } catch (ignored) {
+          // Sin almacenamiento la clave se toma solo del campo.
+        }
+      }
+
+      keyInput.value = readStoredKey();
+      keyInput.addEventListener("change", function () {
+        storeKey(keyInput.value.trim());
+      });
+
+      // Muestra el request_id de la última respuesta, solo con textContent.
+      function showRequestId(requestId) {
+        requestIdBox.textContent = requestId || "no disponible";
+      }
+
+      // Agrega un mensaje a la conversación usando solo textContent.
+      function addMessage(kind, text, tools) {
+        var box = document.createElement("div");
+        box.className = "message " + kind;
+        var body = document.createElement("div");
+        body.textContent = text;
+        box.appendChild(body);
+        if (tools) {
+          var info = document.createElement("div");
+          info.className = "tools";
+          info.textContent = "Herramientas usadas: " +
+            (tools.length ? tools.join(", ") : "ninguna");
+          box.appendChild(info);
+        }
+        conversation.appendChild(box);
+      }
+
+      // Traduce un código de error de la API a un mensaje en español.
+      function errorMessage(status, retryAfter) {
+        if (status === 401) {
+          return "Clave inválida";
+        }
+        if (status === 429) {
+          var seconds = parseInt(retryAfter, 10);
+          if (!(seconds > 0)) {
+            seconds = 60;
+          }
+          return "Demasiadas preguntas; espera " + seconds + " segundos";
+        }
+        if (status === 422) {
+          return "La pregunta no es válida: no puede estar vacía ni ser " +
+            "demasiado larga.";
+        }
+        if (status === 400) {
+          return "La pregunta fue bloqueada por la política de seguridad. " +
+            "Reformúlala sin pedir instrucciones internas, claves ni secretos.";
+        }
+        if (status === 502) {
+          return "El modelo no está disponible en este momento. " +
+            "Intenta de nuevo en unos minutos.";
+        }
+        return "Ocurrió un error al consultar al asistente (código " +
+          status + "). Intenta de nuevo.";
+      }
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var question = input.value.trim();
+        if (!question) {
+          addMessage("error", "Escribe una pregunta antes de enviar.");
+          return;
+        }
+        var apiKey = keyInput.value.trim();
+        storeKey(apiKey);
+        addMessage("user", question);
+        button.disabled = true;
+        fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+          body: JSON.stringify({ question: question, history: history })
+        })
+          .then(function (response) {
+            showRequestId(response.headers.get("X-Request-ID"));
+            if (!response.ok) {
+              var apiError = new Error(errorMessage(
+                response.status, response.headers.get("Retry-After")));
+              apiError.fromApi = true;
+              throw apiError;
+            }
+            return response.json();
+          })
+          .then(function (data) {
+            if (data.request_id) {
+              showRequestId(data.request_id);
+            }
+            addMessage("assistant", data.answer, data.tools_used || []);
+            history.push({ role: "user", content: question });
+            history.push({ role: "assistant", content: data.answer });
+            input.value = "";
+          })
+          .catch(function (error) {
+            var text = error && error.fromApi
+              ? error.message
+              : "No se pudo conectar con el asistente. Intenta de nuevo.";
+            addMessage("error", text);
+          })
+          .finally(function () {
+            button.disabled = false;
+            input.focus();
+          });
+      });
+    })();
+  </script>
+</body>
+</html>

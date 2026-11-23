@@ -1,0 +1,153 @@
+# Pipeline de CI del HR Assistant v1 (spec/04, punto 6).
+# Cuatro etapas encadenadas con needs: style -> unit -> e2e -> docker.
+# Render publica solo si todas pasan (autoDeployTrigger: checksPass).
+# Este archivo no usa secretos: las pruebas corren con el modelo simulado y una
+# clave de ejemplo que solo existe dentro de estas corridas.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+# Mínimo privilegio: el token del pipeline solo puede leer el repositorio.
+permissions:
+  contents: read
+
+# Una corrida nueva en la misma rama cancela la anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  style:
+    name: style (pylint, 88 columnas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Instalar dependencias
+        # pylint no está en requirements.txt; se instala aparte solo en CI.
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install "pylint>=3"
+      - name: pylint
+        # Mismas reglas que la verificación qa de la fábrica, más la prueba de humo.
+        run: >-
+          python -m pylint app tests scripts/smoke.py
+          --max-line-length=88 --fail-under=10
+          --disable=missing-function-docstring,redefined-outer-name,too-few-public-methods
+
+  unit:
+    name: unit (pruebas y BDD, cobertura >= 80 %)
+    needs: style
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MODEL_PROVIDER: fake
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements.txt
+      - name: pytest con cobertura
+        run: >-
+          python -m pytest -q -p no:cacheprovider tests
+          --cov=app --cov-fail-under=80
+
+  e2e:
+    name: e2e (Playwright, modelo simulado)
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: development
+      MODEL_PROVIDER: fake
+      RATE_LIMIT_PER_MINUTE: "1000"
+      # Clave de ejemplo, no es un secreto: solo vale en este trabajo.
+      E2E_API_KEY: ci-example-key-0001
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Instalar dependencias
+        # pytest-playwright no está en requirements.txt; se instala aparte solo en CI.
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install "pytest-playwright>=0.5"
+      - name: Instalar Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Arrancar el producto y correr Playwright
+        # El producto usa la misma clave de ejemplo que leen las pruebas.
+        run: |
+          export API_KEYS="ci:${E2E_API_KEY}"
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 \
+            > uvicorn.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/health > /dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health > /dev/null
+          python -m pytest e2e -q -p no:cacheprovider \
+            --base-url http://127.0.0.1:8000
+      - name: Log del servidor si algo falla
+        if: failure()
+        run: cat uvicorn.log || true
+
+  docker:
+    name: docker (build y prueba del contenedor)
+    needs: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      IMAGE: hr-assistant-v1:ci
+      CONTAINER: hr-assistant-v1-ci
+      # Clave de ejemplo, no es un secreto: solo vale en este trabajo.
+      SMOKE_API_KEY: ci-example-key-0001
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: docker build
+        run: docker build -t "$IMAGE" .
+      - name: Correr el contenedor con el modelo simulado
+        run: |
+          docker run -d --name "$CONTAINER" -p 127.0.0.1:8000:8000 \
+            -e PORT=8000 -e ENVIRONMENT=development -e MODEL_PROVIDER=fake \
+            -e API_KEYS="ci:${SMOKE_API_KEY}" "$IMAGE"
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/health > /dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health > /dev/null
+      - name: El proceso no corre como root
+        run: test "$(docker exec "$CONTAINER" id -u)" != "0"
+      - name: Prueba de humo contra el contenedor
+        # smoke.py solo usa la biblioteca estándar; lee la clave de SMOKE_API_KEY.
+        run: python scripts/smoke.py http://127.0.0.1:8000
+      - name: Log del contenedor si algo falla
+        if: failure()
+        run: docker logs "$CONTAINER" || true
+      - name: Limpiar
+        if: always()
+        run: docker rm -f "$CONTAINER" || true
