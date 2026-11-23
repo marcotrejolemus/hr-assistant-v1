@@ -9,7 +9,18 @@ El video presenta la interacción con el asistente, su arquitectura multiagente 
 **[▶ Ver video demostrativo en YouTube](https://www.youtube.com/watch?v=KyJm3TwO5EI)**
 
 > Nota: La demostración local utiliza un modelo simulado. Las validaciones de producción se documentan por separado.
-> 
+>
+### Aplicación desplegada en Render
+
+**URL pública:** https://hr-assistant-v1.onrender.com/
+
+[Acceder a HR Assistant v1](https://hr-assistant-v1.onrender.com/)
+
+La aplicación está desplegada en Render mediante Docker, con integración continua en GitHub Actions y autenticación por API Key.
+
+**Estado de validación:** el servicio web está disponible y la autenticación funciona. La validación funcional completa con el modelo real continúa en revisión debido a respuestas bloqueadas por los controles de seguridad.
+
+**Nota:** para realizar consultas se requiere una API Key autorizada. Las credenciales no se publican en este repositorio.
 # HR Assistant
 
 Asistente de Recursos Humanos que responde preguntas en español sobre empleados sintéticos.
