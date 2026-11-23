@@ -1,3 +1,15 @@
+## Video demostrativo
+
+### HR Assistant v1 — Sistema Multiagente con IA | ITESM Módulo 4
+
+Demostración académica del funcionamiento local de HR Assistant v1, desarrollado mediante una fábrica de agentes con Claude Code, Python y FastAPI.
+
+El video presenta la interacción con el asistente, su arquitectura multiagente y las evidencias técnicas del proyecto.
+
+**[▶ Ver video demostrativo en YouTube](https://www.youtube.com/watch?v=KyJm3TwO5EI)**
+
+> Nota: La demostración local utiliza un modelo simulado. Las validaciones de producción se documentan por separado.
+> 
 # HR Assistant
 
 Asistente de Recursos Humanos que responde preguntas en español sobre empleados sintéticos.
